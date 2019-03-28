@@ -11,12 +11,8 @@ namespace Post_It.Models
             {
                 return new Settings()
                 {
-                    ImageFolderLocation = "",
-                    DiscordChannels = new List<DiscordChannel>()
-                    {
-                        new DiscordChannel(){ Name = "", Webhook = "" },
-                        new DiscordChannel(){ Name = "", Webhook = "" }
-                    }
+                    ServerName = string.Empty,
+                    BotToken = string.Empty
                 };
             }
         }

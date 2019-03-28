@@ -14,7 +14,7 @@ namespace Post_It.Utils
                 sw.WriteLine(timestamp);
                 sw.WriteLine("");
                 sw.WriteLine("");
-                sw.WriteLine($"OS VErsion: {Environment.OSVersion}");
+                sw.WriteLine($"OS Version: {Environment.OSVersion}");
                 sw.WriteLine($"");
                 sw.WriteLine($"64Bit OS: {Environment.Is64BitOperatingSystem}");
                 sw.WriteLine($"");

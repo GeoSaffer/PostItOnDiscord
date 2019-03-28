@@ -4,41 +4,58 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Discord.Commands;
 using Discord.WebSocket;
-using DiscordWebhook;
-using Embed = DiscordWebhook.Embed;
+using Embed = Discord.Embed;
 using Uri = System.Uri;
-using static Post_It.WebHooks.Extensions;
 using Post_It.Models;
 using System.IO;
 using Post_It.Utils;
 using System;
+using System.Diagnostics;
+using System.Linq;
+using System.Windows.Threading;
+using Discord;
+using Post_It.Bot;
+using Color = Discord.Color;
 
 namespace Post_It
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
-        private Discord.Color Color { get; set; }
-        private DiscordSocketClient _client;
-        private CommandService _commands;
-        private string _defaultImageUrl = "http://i.imgur.com/XLgutLX.png";
-
-        private string imageFolderLocation;
-
-
+        private string _selectedImagePath;
+        private string _fileName;
+        private readonly DiscordSocketClient _client;
+        private string _serverName;
+        private string _botToken;
+        private SocketGuild _guild;
+        private IReadOnlyCollection<SocketTextChannel> _channels;
+        private SocketTextChannel _selectedChannel;
+        
         public MainWindow()
         {
             InitializeComponent();
             GetSettings();
+            //start bot
+            var bot = new DiscordBot(_botToken);
+            bot.Run();
+            _client = bot.Client;
+            _client.Ready += OnClientOnReady;
         }
 
-        private Settings GetSettings()
+        #region Onload
+        private Task OnClientOnReady()
         {
-            var settings = new Settings();
+            //get guild and channels
+            _guild = _client.Guilds.Single(g => g.Name == _serverName);
+            _channels = _guild.TextChannels;
+
+            PopulateChannelDropdown();
+            
+            return Task.CompletedTask;
+        }
+
+        private void GetSettings()
+        {
             try
             {
                 var settingsFile = myFiles.Json.Settings;
@@ -49,97 +66,130 @@ namespace Post_It
 
                 if (File.Exists(settingsFile))
                 {
-                    settings = JsonFile.Load<Settings>(settingsFile);
-                    imageFolderLocation = settings.ImageFolderLocation;
-                    PopulateChannelDropdown(settings);
+                    var settings = JsonFile.Load<Settings>(settingsFile);
+                   _serverName = settings.ServerName;
+                   _botToken = settings.BotToken;
                 }
             }
             catch (Exception e)
             {
+                Debug.WriteLine(e);
+                DumpFile.Create(e);
+                throw;
+            }
+        }
+       
+        private void PopulateChannelDropdown()
+        {
+            try
+            {
+                Dispatcher.Invoke(new Action(() =>
+                {
+                     var channelItems = _channels
+                         .Select(s => new ComboBoxItem
+                                     {
+                                         Content = (s.Category == null ? $"{s.Name} " : $"({s.Category?.Name}) {s.Name} "), Tag = s.Id
+                                     })
+                         .OrderBy(o => o.Content).ToList();
+
+                     channelItems.ForEach(item => cmbChannelPicker.Items.Add(item));
+                }), DispatcherPriority.ContextIdle);
                 
             }
-            return settings;
-        }
-
-        private void PopulateChannelDropdown(Settings settings)
-        {
-            foreach (var channel in settings.DiscordChannels)
+            catch (Exception e)
             {
-                var item = new ComboBoxItem()
-                {
-                    Content = channel.Name,
-                    Tag = channel.Webhook
-                };
-                cmbChannelPicker.Items.Add(item);
+                Debug.WriteLine(e);
+                DumpFile.Create(e);
+                throw;
             }
+            
+            
         }
+        #endregion
 
-        private void Button_Click(object sender, RoutedEventArgs e)
+        private async void Button_Click(object sender, RoutedEventArgs e)
         {
-            SendMessage();
+            await SendMessage();
         }
-
-        private void UseTitle(Embed myEmbed)
+        
+        #region EmbedBuilder
+        private void UseTitle(EmbedBuilder myEmbed)
         {
             myEmbed.Title = TxtTitle.Text;
         }
 
-        private void UseMessage(Embed myEmbed)
+        private void UseMessage(EmbedBuilder myEmbed)
         {
             myEmbed.Description = TxtMessage.Text;
         }
 
-        private void UseThumbnail(Embed myEmbed)
+        private void UseThumbnail(EmbedBuilder myEmbed)
         {
-            var thumb = new DiscordWebhook.EmbedThumbnail();
-            thumb.Url = EmbedImage.Source.ToString();
-            myEmbed.Thumbnail = thumb;
+            myEmbed.ThumbnailUrl = $"attachment://{_fileName}";
         }
 
-        private List<Embed> CheckWhatToSend()
+        private Embed CheckWhatToSend()
         {
             //create new Embed
-            var myEmbed = new Embed();
+            var myEmbed = new EmbedBuilder();
 
-            //check if we cshould add a title
+            //check if we should add a title
             if (!string.IsNullOrEmpty(TxtTitle.Text))
                 UseTitle(myEmbed);
 
             //check if we should add a message
             if (!string.IsNullOrEmpty(TxtMessage.Text))
                 UseMessage(myEmbed);
-
+            
             //check if we should add a thumbnail
-            if (EmbedImage.Source.ToString() != _defaultImageUrl)
+            if (_selectedImagePath != null)
                 UseThumbnail(myEmbed);
 
-            //assign the colour for the Embed
-            myEmbed.Color = SelectedColour.Fill.ToString().FromHexString();
+            //assign the color for the Embed
+            myEmbed.Color = new Color(SelectedColour.Fill.ToString().FromHexString());
 
-            //Add Embeds to list
-            var embeds = new List<Embed>();
-            embeds.Add(myEmbed);
-            return embeds;
+            // add footer
+            myEmbed.Footer = new EmbedFooterBuilder()
+            {
+                Text = "....created by 'Post It on Discord'"
+            };
+                
+            //build and return embed
+            return myEmbed.Build();
         }
+        #endregion
 
         private async Task SendMessage()
         {
-            var embeds = CheckWhatToSend();
-            if (embeds.Count > 0)
+            if (_selectedChannel != null)
             {
-                var selectedChannelWebhook = ((ComboBoxItem)cmbChannelPicker.SelectedItem)?.Tag.ToString();
-                if (!string.IsNullOrEmpty(selectedChannelWebhook))
+                var embed = CheckWhatToSend();
+                try
                 {
-                    //create new webhook
-                    var newHook = new Webhook($"{selectedChannelWebhook}");
-                    newHook.Content = string.Empty;
-                    newHook.Username = "Grumpy";
-                    newHook.Embeds = embeds;
-                    await newHook.Send();
+                    if (embed.Thumbnail == null)
+                    {
+                        await _selectedChannel.SendMessageAsync(null, false, embed);
+                    }
+                    else
+                    {
+                        await _selectedChannel.SendFileAsync(_selectedImagePath,string.Empty, false, embed, RequestOptions.Default);
+                    }
+
+                    MessageBox.Show(this, "Message sent to Discord.");
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine(e);
+                    DumpFile.Create(e);
+                    throw;
                 }
             }
+            else
+            {
+                MessageBox.Show(this,"Please select a channel to continue.", "Select Channel",MessageBoxButton.OK,MessageBoxImage.Exclamation);
+            }
+            
         }
-
         
         #region colour button events
         private void BtnRed_Click(object sender, RoutedEventArgs e)
@@ -172,16 +222,11 @@ namespace Post_It
             SelectedColour.Fill = new SolidColorBrush(Colors.Black);
         }
 
-        private void CmbColorPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            Color = Discord.Color.Blue;
-        }
-
         #endregion
 
         private void ImageButton_Click(object sender, RoutedEventArgs e)
         {
-            //TODO: use impersonation to get network drives visibility
+            //TODO: if important...... use impersonation to get network drives visibility
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
                 // Set filter for file extension and default file extension 
@@ -195,23 +240,18 @@ namespace Post_It
             // Get the selected file name and display in a TextBox 
             if (result == true)
             {
-                if (dlg.FileName.ToLower().Contains("http://") || dlg.FileName.ToLower().Contains("https://"))
-                {
-                    if (CheckImageFromUrlExist(dlg.FileName))
-                    {
-                        EmbedImage.Source = new BitmapImage(new Uri(dlg.FileName));
-                    }
-                }
-                else
-                {
-                    var filename = dlg.SafeFileName;
-                    var myWebPath = $"{imageFolderLocation}/{filename}";
-                    if (CheckImageFromUrlExist(myWebPath))
-                    {
-                        EmbedImage.Source = new BitmapImage(new Uri(myWebPath));
-                    }
-                }
+                _fileName = dlg.SafeFileName;
+                _selectedImagePath = dlg.FileName;
+                EmbedImage.Source = new BitmapImage(new Uri(_selectedImagePath));
             }
+        }
+
+        private void CmbChanelPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var tag = ((ComboBoxItem) cmbChannelPicker.SelectedItem)?.Tag;
+            if (tag == null) return;
+            var channelId = (ulong) tag;
+            _selectedChannel = _channels.Single(c => c.Id == channelId);
         }
     }
 }
