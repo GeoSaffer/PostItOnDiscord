@@ -13,9 +13,11 @@ using Post_It.Utils;
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using Discord;
 using Post_It.Bot;
+using Post_It.Dialogs;
 using Color = Discord.Color;
 
 namespace Post_It
@@ -43,6 +45,7 @@ namespace Post_It
         }
 
         #region Onload
+
         private Task OnClientOnReady()
         {
             //get guild and channels
@@ -83,17 +86,17 @@ namespace Post_It
         {
             try
             {
-                Dispatcher.Invoke(new Action(() =>
+                Dispatcher.Invoke(() =>
                 {
-                     var channelItems = _channels
-                         .Select(s => new ComboBoxItem
-                                     {
-                                         Content = (s.Category == null ? $"{s.Name} " : $"({s.Category?.Name}) {s.Name} "), Tag = s.Id
-                                     })
-                         .OrderBy(o => o.Content).ToList();
+                    var channelItems = _channels
+                        .Select(s => new ComboBoxItem
+                        {
+                            Content = (s.Category == null ? $"{s.Name} " : $"({s.Category?.Name}) {s.Name} "), Tag = s.Id
+                        })
+                        .OrderBy(o => o.Content).ToList();
 
-                     channelItems.ForEach(item => cmbChannelPicker.Items.Add(item));
-                }), DispatcherPriority.ContextIdle);
+                    channelItems.ForEach(item => cmbChannelPicker.Items.Add(item));
+                }, DispatcherPriority.ContextIdle);
                 
             }
             catch (Exception e)
@@ -102,17 +105,16 @@ namespace Post_It
                 DumpFile.Create(e);
                 throw;
             }
-            
-            
         }
         #endregion
 
-        private async void Button_Click(object sender, RoutedEventArgs e)
+        private void Button_Click(object sender, RoutedEventArgs e)
         {
-            await SendMessage();
+            SendMessage();
         }
-        
+
         #region EmbedBuilder
+
         private void UseTitle(EmbedBuilder myEmbed)
         {
             myEmbed.Title = TxtTitle.Text;
@@ -157,25 +159,35 @@ namespace Post_It
             //build and return embed
             return myEmbed.Build();
         }
+
+        private Embed CheckWhatToSend_ThreadSafe()
+        {
+            return Dispatcher.Invoke(CheckWhatToSend);
+        }
+
         #endregion
 
-        private async Task SendMessage()
+        private void SendMessage()
         {
             if (_selectedChannel != null)
             {
-                var embed = CheckWhatToSend();
                 try
                 {
-                    if (embed.Thumbnail == null)
+                    PleaseWait(() =>
                     {
-                        await _selectedChannel.SendMessageAsync(null, false, embed);
-                    }
-                    else
-                    {
-                        await _selectedChannel.SendFileAsync(_selectedImagePath,string.Empty, false, embed, RequestOptions.Default);
-                    }
+                        var embed = CheckWhatToSend_ThreadSafe();
 
-                    MessageBox.Show(this, "Message sent to Discord.");
+                        if (embed.Thumbnail == null)
+                        {
+                            _selectedChannel.SendMessageAsync(null, false, embed);
+                        }
+                        else
+                        {
+                            _selectedChannel.SendFileAsync(_selectedImagePath, string.Empty, false, embed,
+                                RequestOptions.Default);
+                        }
+                    });
+                    ShowMessage(this, "Message sent to Discord.");
                 }
                 catch (Exception e)
                 {
@@ -186,12 +198,12 @@ namespace Post_It
             }
             else
             {
-                MessageBox.Show(this,"Please select a channel to continue.", "Select Channel",MessageBoxButton.OK,MessageBoxImage.Exclamation);
+                ShowMessage(this, "Please select a channel to continue.", "Select Channel", MessageBoxButton.OK, MessageBoxImage.Exclamation);
             }
-            
         }
-        
+
         #region colour button events
+
         private void BtnRed_Click(object sender, RoutedEventArgs e)
         {
             SelectedColour.Fill = new SolidColorBrush(Colors.Red);
@@ -240,8 +252,8 @@ namespace Post_It
             // Get the selected file name and display in a TextBox 
             if (result == true)
             {
-                _fileName = dlg.SafeFileName;
-                _selectedImagePath = dlg.FileName;
+                _fileName = CacheFile.Create(dlg.FileName);
+                _selectedImagePath = Path.GetFullPath($@"Cache\{_fileName}");
                 EmbedImage.Source = new BitmapImage(new Uri(_selectedImagePath));
             }
         }
@@ -253,5 +265,51 @@ namespace Post_It
             var channelId = (ulong) tag;
             _selectedChannel = _channels.Single(c => c.Id == channelId);
         }
+
+        public void PleaseWait(Action action)
+        {
+            var myEffect = new BlurEffect();
+            using (var w = new WaitDialog(this.Width, action))
+            {
+                myEffect.Radius = 5;
+                Opacity = 0.4;
+                Effect = myEffect;
+                w.Owner = this;
+                w.ShowDialog();
+                myEffect.Radius = 0;
+                Effect = myEffect;
+                Opacity = 1;
+            }
+        }
+
+        public void PleaseWait(Action action, string message)
+        {
+            var myEffect = new BlurEffect();
+            using (var w = new WaitDialog(this.Width, action, message))
+            {
+                myEffect.Radius = 5;
+                Opacity = 0.4;
+                Effect = myEffect;
+                w.Owner = this;
+                w.ShowDialog();
+                myEffect.Radius = 0;
+                Effect = myEffect;
+                Opacity = 1;
+            }
+        }
+
+        private void ShowMessage(Window owner, string message)
+        {
+            Dispatcher.Invoke(new Action<Window, string>((o, m) => 
+                MessageBox.Show(o, m))
+                , new object[] { owner, message });
+        }
+
+        private void ShowMessage(Window owner, string message,string title,MessageBoxButton button, MessageBoxImage image)
+        {
+            Dispatcher.Invoke(new Action<Window, string, string, MessageBoxButton, MessageBoxImage>((o, m, t, b, i) => 
+                MessageBox.Show(o, m, t, b, i)), new object[] { owner, message, title,  button, image });
+        }
+
     }
 }

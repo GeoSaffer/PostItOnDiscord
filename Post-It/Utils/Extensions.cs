@@ -1,6 +1,4 @@
-﻿using System.Drawing;
-using System.Globalization;
-using System.Net;
+﻿using System.Globalization;
 
 namespace Post_It.Utils
 {

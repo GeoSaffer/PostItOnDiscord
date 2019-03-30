@@ -9,7 +9,7 @@ namespace Post_It.Utils
         {
             if (!Directory.Exists("Logs")) Directory.CreateDirectory("Logs");
             var timestamp = $"{DateTime.Now:yyyy-MM-dd_HHmmss}";
-            using (StreamWriter sw = File.CreateText($"Logs\\Exception_{timestamp}.log"))
+            using (var sw = File.CreateText($"Logs\\Exception_{timestamp}.dump"))
             {
                 sw.WriteLine(timestamp);
                 sw.WriteLine("");

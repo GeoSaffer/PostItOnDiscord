@@ -145,12 +145,21 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="Bot\DiscordBot.cs" />
+    <Compile Include="Dialogs\WaitDialog.xaml.cs">
+      <DependentUpon>WaitDialog.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Models\myFiles.cs" />
     <Compile Include="Models\Settings.cs" />
+    <Compile Include="Utils\CacheFile.cs" />
+    <Compile Include="Utils\Log.cs" />
     <Compile Include="Utils\DumpFile.cs" />
     <Compile Include="Utils\JsonFile.cs" />
     <Compile Include="Models\JsonObjects.cs" />
     <Compile Include="Utils\Extensions.cs" />
+    <Page Include="Dialogs\WaitDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
